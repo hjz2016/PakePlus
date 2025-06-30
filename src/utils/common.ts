@@ -19,7 +19,7 @@ export const webBranch = import.meta.env.VITE_WEB_BRANCH
 export const devBranch = import.meta.env.VITE_DEV_BRANCH
 
 // global file size limit
-export const fileSizeLimit = import.meta.env.VITE_FILE_LIMIT_SIZE
+export const fileSizeLimit = import.meta.env.VITE_FILE_LIMIT_SIZE * 1024 * 1024
 export const fileLimitNumber = import.meta.env.VITE_FILE_LIMIT_NUMBER
 
 // pay info
@@ -36,14 +36,16 @@ export const zPaySignKey = import.meta.env.VITE_ZPAY_SIGN_KEY
 
 // urlMap
 export const urlMap = {
-    pakeplus: 'https://www.pakeplus.com/',
+    pakeplus: 'https://www.pakeplus.com',
     github: 'https://github.com/Sjj1024/PakePlus',
-    ppofficial: 'https://ppofficial.pages.dev/',
+    ppofficial: 'https://www.ppofficial.pages.dev',
+    ppnotes: 'https://pakeplus.com/ppnotes.json',
     configdoc: 'https://ppofficial.pages.dev/guide/config.html',
     phonedoc: 'https://www.pakeplus.com/guide/phone.html',
     builddoc: 'https://www.pakeplus.com/guide/build.html',
-    questiondoc: 'https://pakeplus.com/question/',
-    pakeplusdev: 'https://pakeplus.pages.dev/',
+    questiondoc: 'https://pakeplus.com/question',
+    exchange: 'https://www.pakeplus.com/exchange',
+    pakeplusdev: 'https://pakeplus.pages.dev',
     weixin: 'https://github.com/Sjj1024/PakePlus',
     qq: '',
     email: '1024xiaoshen@gmail.com',
@@ -1207,7 +1209,7 @@ export const checkLastPublish = () => {
 }
 
 // check update
-export const isNow = (v1: string, v2: string) => {
+export const isNew = (v1: string, v2: string) => {
     const parts1 = v1.split('.').map(Number)
     const parts2 = v2.split('.').map(Number)
     const maxLength = Math.max(parts1.length, parts2.length)

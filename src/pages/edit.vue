@@ -356,10 +356,10 @@
                 style="max-width: 600px"
             >
                 <!-- debug -->
-                <el-form-item label="打包方式">
+                <el-form-item :label="t('buildMethod')">
                     <el-select
                         v-model="store.currentProject.desktop.buildMethod"
-                        placeholder="请选择打包方式"
+                        :placeholder="t('selectBuildMethod')"
                         @change="methodChange"
                     >
                         <el-option
@@ -373,7 +373,7 @@
                 </el-form-item>
                 <el-form-item
                     v-if="store.currentProject.desktop.buildMethod === 'local'"
-                    label="保存路径"
+                    :label="t('savePath')"
                 >
                     <el-input
                         v-model.trim="savePath"
@@ -381,7 +381,7 @@
                         autoCapitalize="off"
                         autoCorrect="off"
                         spellCheck="false"
-                        placeholder="点击选择，默认保存到下载目录"
+                        :placeholder="t('savePathTips')"
                         @click="savePathHandle('select')"
                     >
                         <template #append>
@@ -534,6 +534,7 @@ import {
     exists,
     remove,
     writeFile,
+    rename,
 } from '@tauri-apps/plugin-fs'
 import {
     appCacheDir,
@@ -586,6 +587,7 @@ import {
     readStaticFile,
     rhExeUrl,
     base64PngToIco,
+    isAlphanumeric,
 } from '@/utils/common'
 import { arch, platform } from '@tauri-apps/plugin-os'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -615,8 +617,8 @@ const configDialogVisible = ref(false)
 const codeDialogVisible = ref(false)
 const imgPreviewVisible = ref(false)
 const warning = ref('')
-const platformName = platform()
-const archName = arch()
+const platformName = isTauri ? platform() : 'web'
+const archName = isTauri ? arch() : 'web'
 
 const appRules = reactive<FormRules>({
     showName: [
@@ -731,20 +733,21 @@ const tauriConfigRef = ref<any>(null)
 const methodOptions = [
     {
         value: 'local',
-        label: '本地打包（仅支持本机系统，大概36秒）',
+        label: t('localBuild'),
+        disabled: !isTauri,
     },
     {
         value: 'cloud',
-        label: '云端打包（支持所有主流系统，大概9分钟）',
+        label: t('cloudBuild'),
     },
     {
         value: 'localFast',
-        label: '本地极速（仅支持本机系统，大概2秒）',
+        label: t('localFastBuild'),
         disabled: true,
     },
     {
         value: 'cloudFast',
-        label: '云端极速（支持所有主流系统，大概3分钟）',
+        label: t('cloudFastBuild'),
         disabled: true,
     },
 ]
@@ -761,7 +764,6 @@ const platformMap: any = {
 
 // method change
 const methodChange = (value: string) => {
-    console.log('methodChange', value, platformName, archName)
     if (value === 'local') {
         // 判断本机型号，然后给store.currentProject.platform复制
         store.currentProject.platform = platformMap[platformName + archName]
@@ -787,7 +789,7 @@ const savePathHandle = async (handle: string) => {
         // check path
         const isExists = await exists(savePath.value)
         if (!isExists) {
-            oneMessage.error('路径不存在')
+            oneMessage.error(t('pathNotExist'))
             return
         }
     }
@@ -1087,7 +1089,7 @@ const stopServer = async () => {
     }
 }
 // close preview window and stop server
-listen('stop_server', stopServer)
+isTauri && listen('stop_server', stopServer)
 
 // handle file change
 const handleFileChange = async (event: any) => {
@@ -1327,7 +1329,7 @@ const saveFormInput = async () => {
 const validateNoNewlines = () => {
     const desc = store.currentProject.desktop.desc
     if (desc && (desc.includes('\n') || desc.includes('\r'))) {
-        oneMessage.error('描述不能包含换行符')
+        oneMessage.error(t('descNoNewlines'))
         store.currentProject.desktop.desc = desc.replace(/[\n\r]/g, '')
     }
 }
@@ -1565,9 +1567,10 @@ const updateCustomJs = async () => {
     }
 }
 
-listen('local-progress', (event: any) => {
-    buildRate.value = parseInt(event.payload)
-})
+isTauri &&
+    listen('local-progress', (event: any) => {
+        buildRate.value = parseInt(event.payload)
+    })
 
 // local publish
 const easyLocal = async () => {
@@ -1589,50 +1592,73 @@ const easyLocal = async () => {
         loadingText(loadingState)
     }, 1000)
     // if windows, down rh.exe
+    // exe name
+    let targetName = isAlphanumeric(store.currentProject.showName)
+        ? store.currentProject.showName
+        : store.currentProject.name
+    const targetExe = await join(targetDir, targetName, `${targetName}.exe`)
     if (platformName === 'windows') {
         const ppExeDir: string = await invoke('get_exe_dir')
         const rhExePath = await join(ppExeDir, 'data', 'rh.exe')
-        const downRhExe = await invoke('download_file', {
-            url: rhExeUrl,
-            savePath: rhExePath,
-            fileId: 'rh.exe',
-        })
-        console.log('downRhExe----', downRhExe)
+        // exists
+        if (await exists(rhExePath)) {
+            console.log('rh.exe exists')
+        } else {
+            await invoke('download_file', {
+                url: rhExeUrl,
+                savePath: rhExePath,
+                fileId: 'rh.exe',
+            })
+        }
         // ico save to local
         const base64String = store.currentProject.iconRound
             ? roundIcon.value
             : iconBase64.value
         const icoBlob = await base64PngToIco(base64String)
-        console.log('ico', icoBlob)
         const icoPath = await join(ppExeDir, 'data', 'app.ico')
         await writeFile(icoPath, icoBlob)
+        // save rhscript.txt
+        const rhscript = await readStaticFile('rhscript.txt')
+        const rhtarget = rhscript.replace('Target.exe', targetExe)
+        const rhscriptPath = await join(ppExeDir, 'data', 'rhscript.txt')
+        await writeTextFile(rhscriptPath, rhtarget)
+    } else {
+        targetName = store.currentProject.showName
     }
     // build local
     // store.currentProject.isHtml && store.currentProject.htmlPath
     invoke('build_local', {
         targetDir: targetDir,
-        exeName: store.currentProject.showName,
+        exeName: targetName,
         config: store.currentProject.more.windows,
-        base64Png:
-            platformName === 'macos'
-                ? store.currentProject.iconRound
-                    ? roundIcon.value
-                    : iconBase64.value
-                : iconBase64.value,
+        base64Png: store.currentProject.iconRound
+            ? roundIcon.value
+            : iconBase64.value,
         debug: store.currentProject.desktop.debug,
         customJs: await getInitializationScript(true),
         htmlPath: store.currentProject.htmlPath,
     })
-        .then((res) => {
-            console.log('build_local1 res', res)
+        .then(async (res) => {
             loadingText(t('buildSuccess'))
-            oneMessage.success('本地打包成功')
+            // isAlphanumeric(store.currentProject.showName)
+            if (
+                platformName === 'windows' &&
+                !isAlphanumeric(store.currentProject.showName)
+            ) {
+                const chinaExeName = await join(
+                    targetDir,
+                    targetName,
+                    `${store.currentProject.showName}.exe`
+                )
+                await rename(targetExe, chinaExeName)
+            }
+            oneMessage.success(t('localSuccess'))
             buildLoading.value = false
         })
         .catch((error) => {
             console.error('build_local2 error', error)
             oneMessage.error(error)
-            warning.value = '本地打包失败' + ': ' + error
+            warning.value = t('localError') + ': ' + error
         })
         .finally(() => {
             buildSecondTimer && clearInterval(buildSecondTimer)
@@ -1677,8 +1703,8 @@ const publishWeb = async () => {
             'build error',
             'PakePlus'
         )
-        ElMessageBox.confirm('跳转到常见问题查看解决办法', '发布失败', {
-            confirmButtonText: 'OK',
+        ElMessageBox.confirm(t('publishErrorTips'), t('publishError'), {
+            confirmButtonText: t('confirm'),
             type: 'warning',
             center: true,
         }).finally(() => {
@@ -1707,7 +1733,7 @@ const publishCheck = async () => {
         } else if (store.currentProject.platform.length > 0) {
             publishWeb()
         } else {
-            oneMessage.error('请选择平台')
+            oneMessage.error(t('selectPlatform'))
             buildLoading.value = false
             centerDialogVisible.value = true
         }
@@ -1752,7 +1778,7 @@ const dispatchAction = async () => {
             buildTime += 1
             const minute = Math.floor(buildTime / 60)
             const second = buildTime % 60
-            const buildRate = Math.floor((buildTime / (60 * 15)) * 100)
+            const buildRate = Math.floor((buildTime / (60 * 10)) * 100)
             // loadingText.value = `${buildStatus}...${minute}分${second}秒`
             const loadingState = `<div>${minute}${t('minute')}${second}${t(
                 'second'
@@ -1890,26 +1916,6 @@ const checkBuildStatus = async () => {
     }
 }
 
-// init jsFileContents from jsFile
-const initJsFileContents = async () => {
-    // read js file content from appDataDir assets dir
-    const appDataPath = await appDataDir()
-    const targetDir = await join(appDataPath, 'assets')
-    const jsFilePath = await join(targetDir, `${store.currentProject.name}.js`)
-    // if file not exist, return
-    if (await exists(jsFilePath)) {
-        const jsFileContent = await readTextFile(jsFilePath)
-        jsFileContents.value = jsFileContent
-        console.log('initJsFileContents', jsFileContent)
-    }
-    jsSelOptions.value = store.currentProject.jsFile?.map((item: any) => {
-        return {
-            label: item,
-            value: item,
-        }
-    })
-}
-
 const handleKeydown = (event: KeyboardEvent) => {
     // Check if Command (Meta) + S is pressed
     if ((event.metaKey || event.ctrlKey) && event.key === 's') {
@@ -1938,6 +1944,9 @@ onMounted(async () => {
         const window = getCurrentWindow()
         window.setTitle(`${store.currentProject.name}`)
         methodChange(store.currentProject.desktop.buildMethod)
+    } else {
+        store.currentProject.desktop.buildMethod = 'cloud'
+        methodChange('cloud')
     }
     console.log('route.query', route.query)
     const delrelease = route.query.delrelease

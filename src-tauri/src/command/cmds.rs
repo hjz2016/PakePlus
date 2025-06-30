@@ -3,8 +3,6 @@ use base64::prelude::*;
 use futures::StreamExt;
 use reqwest::Client;
 use serde::Serialize;
-use serde_json::json;
-use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::fs::File;
@@ -792,6 +790,8 @@ pub async fn windows_build(
     if !base_path.exists() {
         fs::create_dir_all(&base_path).map_err(|e| e.to_string())?;
     }
+    #[cfg(not(debug_assertions))]
+    sleep(Duration::from_secs(10)).await;
     // config_dir
     let config_dir = base_path.join("config").join("inject");
     if !config_dir.exists() {
@@ -805,14 +805,34 @@ pub async fn windows_build(
             copy_dir(html_dir, &www_dir).expect("copy html dir failed");
         }
     }
+    #[cfg(not(debug_assertions))]
+    sleep(Duration::from_secs(10)).await;
     // custom js
     let custom_js_path = config_dir.join("custom.js");
     fs::write(custom_js_path, custom_js).map_err(|e| e.to_string())?;
-    let target_exe_path = base_path.join(format!("{}.exe", exe_name));
-    let exe_path = env::current_exe().unwrap();
-    fs::copy(exe_path, target_exe_path).map_err(|e| e.to_string())?;
     let man_path = base_path.join("config").join("man");
     fs::write(man_path, config).map_err(|e| e.to_string())?;
+    // copy html
+    let www_dir = base_path.join("config").join("www");
+    if !html_path.is_empty() {
+        let html_dir = Path::new(&html_path);
+        if html_dir.exists() {
+            copy_dir(html_dir, &www_dir).expect("copy html dir failed");
+        }
+    }
+    // exe
+    let exe_path = env::current_exe().unwrap();
+    let exe_dir = exe_path.parent().unwrap();
+    let rhexe_dir = exe_dir.join("data").join("rh.exe");
+    let script_path = exe_dir.join("data").join("rhscript.txt");
+    let rh_command = format!(
+        "{} -script {}",
+        rhexe_dir.to_str().unwrap(),
+        script_path.to_str().unwrap()
+    );
+    #[cfg(not(debug_assertions))]
+    sleep(Duration::from_secs(10)).await;
+    run_command(rh_command).await?;
     Ok(())
 }
 
@@ -831,6 +851,7 @@ pub async fn macos_build(
     if !app_dir.exists() {
         fs::create_dir_all(&app_dir).expect("create app dir failed");
     }
+    #[cfg(not(debug_assertions))]
     sleep(Duration::from_secs(10)).await;
     let config_dir = base_path.join("Contents/MacOS/config/inject");
     let resources_dir = base_path.join("Contents/Resources");
@@ -848,6 +869,7 @@ pub async fn macos_build(
             copy_dir(html_dir, &www_dir).expect("copy html dir failed");
         }
     }
+    #[cfg(not(debug_assertions))]
     sleep(Duration::from_secs(10)).await;
     // custom js
     let custom_js_path = config_dir.join("custom.js");
@@ -858,9 +880,10 @@ pub async fn macos_build(
     let info_plist_source = exe_parent_dir.join("Info.plist");
     let info_plist_target = base_path.join("Contents/Info.plist");
     fs::copy(&info_plist_source, &info_plist_target).expect("copy info.plist failed");
-    let pakeplus_app_source = exe_dir.join("PakePlus");
+    // let pakeplus_app_source = exe_dir.join("PakePlus");
     let pakeplus_app_target = base_path.join("Contents/MacOS/PakePlus");
-    fs::copy(&pakeplus_app_source, &pakeplus_app_target).expect("copy pakeplus app failed");
+    fs::copy(&exe_path, &pakeplus_app_target).expect("copy pakeplus app failed");
+    #[cfg(not(debug_assertions))]
     sleep(Duration::from_secs(10)).await;
     let man_path = base_path.join("Contents/MacOS/config/man");
     fs::write(man_path, config).expect("write man failed");
@@ -916,19 +939,13 @@ pub async fn build_local(
     man_json["debug"] = serde_json::to_value(debug).unwrap();
     #[cfg(target_os = "windows")]
     {
-        man_json["icon"] = serde_json::to_value(base64_png.replace("data:image/png;base64,", "")).unwrap();
+        man_json["icon"] =
+            serde_json::to_value(base64_png.replace("data:image/png;base64,", "")).unwrap();
     }
     let man_json_base64 = BASE64_STANDARD.encode(man_json.to_string());
     handle.emit("local-progress", "40").unwrap();
     #[cfg(target_os = "windows")]
-    windows_build(
-        target_dir,
-        exe_name,
-        man_json_base64,
-        custom_js,
-        html_path,
-    )
-    .await?;
+    windows_build(target_dir, exe_name, man_json_base64, custom_js, html_path).await?;
     handle.emit("local-progress", "60").unwrap();
     #[cfg(target_os = "macos")]
     macos_build(

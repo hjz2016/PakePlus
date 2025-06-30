@@ -137,7 +137,7 @@
             <div
                 class="version"
                 :class="{ isUpdate: store.isUpdate }"
-                @click="goAbout"
+                @click="goAbout('about')"
             >
                 v{{ packageJson.version }}
             </div>
@@ -145,19 +145,22 @@
                 <el-dropdown-menu class="updateMenu">
                     <el-dropdown-item
                         class="updateBtn"
-                        v-if="store.isUpdate"
+                        v-if="isTauri && store.isUpdate"
                         @click="sendUpdateEvent('update-now')"
                     >
                         {{ t('updateNow') }}
                     </el-dropdown-item>
                     <el-dropdown-item
-                        v-else-if="isTauri"
+                        v-if="isTauri"
                         @click="sendUpdateEvent('update-check')"
                     >
                         {{ t('checkUpdate') }}
                     </el-dropdown-item>
-                    <el-dropdown-item @click="goAbout">
+                    <el-dropdown-item @click="goAbout('superpower')">
                         {{ t('superpower') }}
+                    </el-dropdown-item>
+                    <el-dropdown-item @click="goAbout('about')">
+                        {{ t('aboutUs') }}
                     </el-dropdown-item>
                 </el-dropdown-menu>
             </template>
@@ -454,8 +457,10 @@ const goProject = async (pro: Project) => {
 }
 
 // go about
-const goAbout = () => {
-    if (isTauri) {
+const goAbout = (route: string = 'about') => {
+    if (route !== 'about') {
+        router.push('/tauriapi')
+    } else if (isTauri) {
         router.push('/tauriapi?about=true')
     } else {
         router.push('/about')
@@ -750,9 +755,9 @@ const creatProject = async () => {
         branchDialog.value = false
         return
     } else if (
-        branchName.value === 'PakePlus' ||
+        branchName.value === 'main' ||
         branchName.value === 'web2' ||
-        branchName.value === 'web3'
+        branchName.value === webBranch
     ) {
         oneMessage.error(t('banned'))
         branchName.value = ''
@@ -988,12 +993,17 @@ const syncAllBranch = async (init: boolean = false) => {
             console.log('syncAllBranch', repo)
             const upRes: any = await githubApi.getAllBranchs(upstreamUser, repo)
             console.log('up branchs Res', upRes)
-            const upBranchs = upRes.data?.map((item: any) => {
-                return {
-                    name: item.name,
-                    sha: item.commit.sha,
-                }
-            })
+            const upBranchs = upRes.data
+                ?.map((item: any) => {
+                    return {
+                        name: item.name,
+                        sha: item.commit.sha,
+                    }
+                })
+                .filter(
+                    (item: any) =>
+                        item.name === 'main' || item.name === webBranch
+                )
             console.log('upBranchs', upBranchs)
             const userRes: any = await githubApi.getAllBranchs(
                 store.userName,
@@ -1006,12 +1016,12 @@ const syncAllBranch = async (init: boolean = false) => {
                     sha: item.commit.sha,
                 }
             })
-            console.log('userBranchs', userBranchs)
             for (const branch of upBranchs) {
                 // check branch is exist in userBranchs and sha is same
                 const userBranch = userBranchs.find(
                     (item: any) => item.name === branch.name
                 )
+                console.log('userBranchs---', userBranch)
                 if (userBranch && userBranch.sha !== branch.sha) {
                     // merge branch and commit(allways use upstream branch)
                     await mergeBranch(repo, branch.name)
@@ -1032,7 +1042,7 @@ onMounted(() => {
         oneMessage.error(t('webNotStable'))
     }
     // getPakePlusInfo()
-    // syncAllBranch()
+    syncAllBranch()
 })
 </script>
 
